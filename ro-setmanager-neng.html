@@ -129,7 +129,7 @@ tbody tr:hover .item-row-actions{opacity:1}
 <header>
   <span style="font-size:18px">⚔</span>
   <span style="font-weight:600;font-size:14px">RO Item Set Manager</span>
-  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)">GitHub Pages</span><span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple);font-family:var(--mono)">v1.0.5</span>
+  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)">GitHub Pages</span><span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple);font-family:var(--mono)">v1.0.6</span>
   <div style="margin-left:8px;font-size:12px;color:var(--text3)" id="hdr-stats"></div>
   <div style="margin-left:auto;display:flex;gap:7px;align-items:center">
     <span id="sync-msg" style="font-size:12px;color:var(--green)"></span>
@@ -327,12 +327,16 @@ function parseItemYAML(text){
   const bodyIdx=text.indexOf('Body:');
   if(bodyIdx===-1) return items;
   const body=text.slice(bodyIdx);
-  // split on "  - Id:" (2 spaces)
   const entries=body.split('\n  - Id:');
   for(let i=1;i<entries.length;i++){
-    const blk='\n  - Id:'+entries[i];
+    const raw=entries[i]; // starts with " 1100\n    AegisName: ..."
+    // Parse Id from first line
+    const firstNL=raw.indexOf('\n');
+    const id=parseInt(raw.slice(0,firstNL).trim());
+    if(!id||isNaN(id)) continue;
+    const blk=raw.slice(firstNL); // rest of block starting with \n    AegisName: ...
 
-    // get single-line field value
+    // get single-line field
     const g=(key,def='')=>{
       const search='\n    '+key+': ';
       const idx=blk.indexOf(search);
@@ -342,10 +346,7 @@ function parseItemYAML(text){
       return (e===-1?blk.slice(s):blk.slice(s,e)).trim().replace(/^["']|["']$/g,'');
     };
 
-    const id=parseInt(g('Id'));
-    if(!id||isNaN(id)) continue;
-
-    // Jobs: (capital J, 6-space indent values)
+    // Jobs:
     const jobs=[];
     const jobStart=blk.indexOf('\n    Jobs:\n');
     if(jobStart!==-1){
@@ -369,29 +370,26 @@ function parseItemYAML(text){
       }
     }
 
-    // Script — try multiline > then inline
-    let script='';
+    // Script
     const tryScript=(key)=>{
-      const k1='\n    '+key+': >\n';
-      const k2='\n    '+key+': |\n';
-      const k3='\n    '+key+': ';
-      let idx=blk.indexOf(k1);
-      let skip=k1.length;
-      if(idx===-1){idx=blk.indexOf(k2);skip=k2.length;}
+      const ml='\n    '+key+': >\n';
+      const ml2='\n    '+key+': |\n';
+      const il='\n    '+key+': ';
+      let idx=blk.indexOf(ml); let skip=ml.length;
+      if(idx===-1){idx=blk.indexOf(ml2);skip=ml2.length;}
       if(idx!==-1){
-        const nextField=blk.indexOf('\n    ',idx+skip);
-        const raw=nextField===-1?blk.slice(idx+skip):blk.slice(idx+skip,nextField);
+        const nf=blk.indexOf('\n    ',idx+skip);
+        const raw=nf===-1?blk.slice(idx+skip):blk.slice(idx+skip,nf);
         return raw.replace(/\n\s*/g,' ').trim();
       }
-      idx=blk.indexOf(k3);
+      idx=blk.indexOf(il);
       if(idx!==-1){
-        const s=idx+k3.length;
-        const e=blk.indexOf('\n',s);
+        const s=idx+il.length;const e=blk.indexOf('\n',s);
         return (e===-1?blk.slice(s):blk.slice(s,e)).trim();
       }
       return '';
     };
-    script=tryScript('Script')||tryScript('EquipScript')||tryScript('UnEquipScript');
+    const script=tryScript('Script')||tryScript('EquipScript')||tryScript('UnEquipScript');
 
     // Locations:
     let location='';

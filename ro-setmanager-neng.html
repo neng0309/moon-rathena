@@ -136,7 +136,7 @@ tbody tr:hover .item-row-actions{opacity:1}
     <button id="btn-export" class="btn-b">⬇ Export</button>
     <label style="display:contents"><button class="btn-b" onclick="document.getElementById('inp-import').click()">⬆ Import</button>
       <input type="file" id="inp-import" accept=".json" style="display:none"/></label>
-    <button id="btn-sync">↻ Sync DB</button>
+    <button id="btn-sync">↻ Refresh DB</button>
   </div>
 </header>
 
@@ -875,7 +875,12 @@ renderColorRow(SET_COLORS[0]);
 window._selectedColor=SET_COLORS[0];
 renderSidebar();
 renderSetPane();
-loadCache();
+// Auto-load: ถ้ามี cache ใช้เลย ถ้าไม่มี sync อัตโนมัติ
+if(!loadCache()){
+  syncGitHub(true);
+} else {
+  renderDbTable();
+}
 </script>
 </body>
 </html>

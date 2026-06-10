@@ -323,10 +323,10 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 // ══════════════════════════════════════════════
 function parseItemYAML(text){
   const items=[];
-  const bodyIdx=text.indexOf('\nBody:');
+  const b1=text.indexOf('\nBody:'),b2=text.indexOf('\r\nBody:');const bodyIdx=b1!==-1?b1:b2!==-1?b2:(text.startsWith('Body:')?0:-1);
   if(bodyIdx===-1) return items;
   const body=text.slice(bodyIdx);
-  const entries=body.split(/\n  - Id:/);
+  const entries=body.split(/\r?\n  - Id:/);
   for(let i=1;i<entries.length;i++){
     const blk='  - Id:'+entries[i];
     const g=(key,def='')=>{const m=blk.match(new RegExp(`\\n\\s+${key}:\\s*(.+)`));return m?m[1].trim().replace(/^["']|["']$/g,''):def};

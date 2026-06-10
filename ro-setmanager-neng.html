@@ -129,7 +129,7 @@ tbody tr:hover .item-row-actions{opacity:1}
 <header>
   <span style="font-size:18px">⚔</span>
   <span style="font-weight:600;font-size:14px">RO Item Set Manager</span>
-  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)">GitHub Pages</span><span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple);font-family:var(--mono)">v1.0.4</span>
+  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)">GitHub Pages</span><span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple);font-family:var(--mono)">v1.0.5</span>
   <div style="margin-left:8px;font-size:12px;color:var(--text3)" id="hdr-stats"></div>
   <div style="margin-left:auto;display:flex;gap:7px;align-items:center">
     <span id="sync-msg" style="font-size:12px;color:var(--green)"></span>
@@ -323,87 +323,84 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 // ══════════════════════════════════════════════
 function parseItemYAML(text){
   const items=[];
-  // Handle \r\n and find Body:
   text=text.replace(/\r\n/g,'\n');
-  const bodyIdx=text.indexOf('\nBody:');
-  if(bodyIdx===-1&&!text.startsWith('Body:')) return items;
-  const body=bodyIdx===-1?text:text.slice(bodyIdx);
+  const bodyIdx=text.indexOf('Body:');
+  if(bodyIdx===-1) return items;
+  const body=text.slice(bodyIdx);
+  // split on "  - Id:" (2 spaces)
   const entries=body.split('\n  - Id:');
   for(let i=1;i<entries.length;i++){
-    const blk='  - Id:'+entries[i];
-    // Static field getter using indexOf only — no new RegExp
+    const blk='\n  - Id:'+entries[i];
+
+    // get single-line field value
     const g=(key,def='')=>{
       const search='\n    '+key+': ';
       const idx=blk.indexOf(search);
       if(idx===-1) return def;
-      const lineStart=idx+search.length;
-      const lineEnd=blk.indexOf('\n',lineStart);
-      const val=lineEnd===-1?blk.slice(lineStart):blk.slice(lineStart,lineEnd);
-      return val.trim().replace(/^["']|["']$/g,'');
+      const s=idx+search.length;
+      const e=blk.indexOf('\n',s);
+      return (e===-1?blk.slice(s):blk.slice(s,e)).trim().replace(/^["']|["']$/g,'');
     };
+
     const id=parseInt(g('Id'));
     if(!id||isNaN(id)) continue;
 
-    // Jobs block
+    // Jobs: (capital J, 6-space indent values)
     const jobs=[];
-    const jobStart=blk.indexOf('\n    Job:\n');
+    const jobStart=blk.indexOf('\n    Jobs:\n');
     if(jobStart!==-1){
-      const jobEnd=blk.indexOf('\n    ',jobStart+9);
-      const jobBlock=jobEnd===-1?blk.slice(jobStart+9):blk.slice(jobStart+9,jobEnd);
-      const jobLines=jobBlock.split('\n');
-      for(const line of jobLines){
+      const nextField=blk.indexOf('\n    ',jobStart+10);
+      const jobBlock=nextField===-1?blk.slice(jobStart+10):blk.slice(jobStart+10,nextField);
+      for(const line of jobBlock.split('\n')){
         const m=line.match(/^\s+(\w+):\s*true/);
         if(m) jobs.push(m[1]);
       }
     }
 
-    // Upper block
+    // Upper:
     const upper=[];
     const upperStart=blk.indexOf('\n    Upper:\n');
     if(upperStart!==-1){
-      const upperEnd=blk.indexOf('\n    ',upperStart+12);
-      const upperBlock=upperEnd===-1?blk.slice(upperStart+12):blk.slice(upperStart+12,upperEnd);
-      const upperLines=upperBlock.split('\n');
-      for(const line of upperLines){
+      const nextField=blk.indexOf('\n    ',upperStart+12);
+      const upperBlock=nextField===-1?blk.slice(upperStart+12):blk.slice(upperStart+12,nextField);
+      for(const line of upperBlock.split('\n')){
         const m=line.match(/^\s+- (\w+)/);
         if(m) upper.push(m[1]);
       }
     }
 
-    // Script — handle multiline with >
+    // Script — try multiline > then inline
     let script='';
-    const scriptIdx=blk.indexOf('\n    Script: >');
-    const scriptIdx2=blk.indexOf('\n    Script: |');
-    const scriptIdx3=blk.indexOf('\n    Script: {');
-    const equipIdx=blk.indexOf('\n    EquipScript: >');
-    const equipIdx2=blk.indexOf('\n    EquipScript: {');
-    const sIdx=scriptIdx!==-1?scriptIdx:scriptIdx2!==-1?scriptIdx2:scriptIdx3!==-1?scriptIdx3:-1;
-    const eIdx=equipIdx!==-1?equipIdx:equipIdx2!==-1?equipIdx2:-1;
-    const useIdx=sIdx!==-1?sIdx:eIdx;
-    if(useIdx!==-1){
-      const afterColon=blk.indexOf('\n',useIdx+1);
-      const nextField=blk.indexOf('\n    ',afterColon+1);
-      const raw=nextField===-1?blk.slice(afterColon+1):blk.slice(afterColon+1,nextField);
-      script=raw.replace(/\n\s*/g,' ').trim();
-    } else {
-      // inline script
-      const inlineIdx=blk.indexOf('\n    Script: ');
-      if(inlineIdx!==-1){
-        const lineEnd=blk.indexOf('\n',inlineIdx+13);
-        script=lineEnd===-1?blk.slice(inlineIdx+13):blk.slice(inlineIdx+13,lineEnd);
-        script=script.trim();
+    const tryScript=(key)=>{
+      const k1='\n    '+key+': >\n';
+      const k2='\n    '+key+': |\n';
+      const k3='\n    '+key+': ';
+      let idx=blk.indexOf(k1);
+      let skip=k1.length;
+      if(idx===-1){idx=blk.indexOf(k2);skip=k2.length;}
+      if(idx!==-1){
+        const nextField=blk.indexOf('\n    ',idx+skip);
+        const raw=nextField===-1?blk.slice(idx+skip):blk.slice(idx+skip,nextField);
+        return raw.replace(/\n\s*/g,' ').trim();
       }
-    }
+      idx=blk.indexOf(k3);
+      if(idx!==-1){
+        const s=idx+k3.length;
+        const e=blk.indexOf('\n',s);
+        return (e===-1?blk.slice(s):blk.slice(s,e)).trim();
+      }
+      return '';
+    };
+    script=tryScript('Script')||tryScript('EquipScript')||tryScript('UnEquipScript');
 
-    // Location
+    // Locations:
     let location='';
     const locStart=blk.indexOf('\n    Locations:\n');
     if(locStart!==-1){
-      const locEnd=blk.indexOf('\n    ',locStart+16);
-      const locBlock=locEnd===-1?blk.slice(locStart+16):blk.slice(locStart+16,locEnd);
-      const locLines=locBlock.split('\n');
+      const nextField=blk.indexOf('\n    ',locStart+16);
+      const locBlock=nextField===-1?blk.slice(locStart+16):blk.slice(locStart+16,nextField);
       const locs=[];
-      for(const line of locLines){
+      for(const line of locBlock.split('\n')){
         const m=line.match(/^\s+(\w+):\s*true/);
         if(m) locs.push(m[1]);
       }

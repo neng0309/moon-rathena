@@ -129,7 +129,7 @@ tbody tr:hover .item-row-actions{opacity:1}
 <header>
   <span style="font-size:18px">⚔</span>
   <span style="font-weight:600;font-size:14px">RO Item Set Manager</span>
-  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)">GitHub Pages</span><span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple);font-family:var(--mono)">v1.0.2</span>
+  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)">GitHub Pages</span><span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple);font-family:var(--mono)">v1.0.3</span>
   <div style="margin-left:8px;font-size:12px;color:var(--text3)" id="hdr-stats"></div>
   <div style="margin-left:auto;display:flex;gap:7px;align-items:center">
     <span id="sync-msg" style="font-size:12px;color:var(--green)"></span>
@@ -323,38 +323,105 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 // ══════════════════════════════════════════════
 function parseItemYAML(text){
   const items=[];
-  const b1=text.indexOf('\nBody:'),b2=text.indexOf('\r\nBody:');const bodyIdx=b1!==-1?b1:b2!==-1?b2:(text.startsWith('Body:')?0:-1);
-  if(bodyIdx===-1) return items;
-  const body=text.slice(bodyIdx);
-  const entries=body.split(/\r?\n  - Id:/);
+  // Handle \r\n and find Body:
+  text=text.replace(/\r\n/g,'\n');
+  const bodyIdx=text.indexOf('\nBody:');
+  if(bodyIdx===-1&&!text.startsWith('Body:')) return items;
+  const body=bodyIdx===-1?text:text.slice(bodyIdx);
+  const entries=body.split('\n  - Id:');
   for(let i=1;i<entries.length;i++){
     const blk='  - Id:'+entries[i];
-    const g=(key,def='')=>{const m=blk.match(new RegExp(`\\n\\s+${key}:\\s*(.+)`));return m?m[1].trim().replace(/^["']|["']$/g,''):def};
+    // Static field getter using indexOf only — no new RegExp
+    const g=(key,def='')=>{
+      const search='\n    '+key+': ';
+      const idx=blk.indexOf(search);
+      if(idx===-1) return def;
+      const lineStart=idx+search.length;
+      const lineEnd=blk.indexOf('\n',lineStart);
+      const val=lineEnd===-1?blk.slice(lineStart):blk.slice(lineStart,lineEnd);
+      return val.trim().replace(/^["']|["']$/g,'');
+    };
     const id=parseInt(g('Id'));
     if(!id||isNaN(id)) continue;
-    const jobMatch=blk.match(/\n\s+Job:\n([\s\S]*?)(?=\n\s{4}\w|\n\s{2}[A-Z]|$)/);
+
+    // Jobs block
     const jobs=[];
-    if(jobMatch){const jm=jobMatch[1].matchAll(/(\w+):\s*true/g);for(const[,j] of jm) jobs.push(j)}
-    const upperMatch=blk.match(/\n\s+Upper:\n([\s\S]*?)(?=\n\s{4}\w|\n\s{2}[A-Z]|$)/);
+    const jobStart=blk.indexOf('\n    Job:\n');
+    if(jobStart!==-1){
+      const jobEnd=blk.indexOf('\n    ',jobStart+9);
+      const jobBlock=jobEnd===-1?blk.slice(jobStart+9):blk.slice(jobStart+9,jobEnd);
+      const jobLines=jobBlock.split('\n');
+      for(const line of jobLines){
+        const m=line.match(/^\s+(\w+):\s*true/);
+        if(m) jobs.push(m[1]);
+      }
+    }
+
+    // Upper block
     const upper=[];
-    if(upperMatch){const um=upperMatch[1].matchAll(/- (\w+)/g);for(const[,u] of um) upper.push(u)}
+    const upperStart=blk.indexOf('\n    Upper:\n');
+    if(upperStart!==-1){
+      const upperEnd=blk.indexOf('\n    ',upperStart+12);
+      const upperBlock=upperEnd===-1?blk.slice(upperStart+12):blk.slice(upperStart+12,upperEnd);
+      const upperLines=upperBlock.split('\n');
+      for(const line of upperLines){
+        const m=line.match(/^\s+- (\w+)/);
+        if(m) upper.push(m[1]);
+      }
+    }
+
+    // Script — handle multiline with >
     let script='';
-    const sm=blk.match(/\n\s+Script:\s*>([\s\S]*?)(?=\n\s{4}\w|\n\s{2}[A-Z]|$)/);
-    if(sm) script=sm[1].replace(/\n\s*/g,' ').trim();
-    else{const sm2=blk.match(/\n\s+Script:\s*\|?([\s\S]*?)(?=\n\s{4}\w|\n\s{2}[A-Z]|$)/);if(sm2) script=sm2[1].replace(/\n\s*/g,' ').trim()}
-    if(!script){const em=blk.match(/\n\s+EquipScript:\s*>([\s\S]*?)(?=\n\s{4}\w|\n\s{2}[A-Z]|$)/);if(em) script=em[1].replace(/\n\s*/g,' ').trim()}
-    const locMatch=blk.match(/\n\s+Locations:\n([\s\S]*?)(?=\n\s{4}\w|\n\s{2}[A-Z]|$)/);
+    const scriptIdx=blk.indexOf('\n    Script: >');
+    const scriptIdx2=blk.indexOf('\n    Script: |');
+    const scriptIdx3=blk.indexOf('\n    Script: {');
+    const equipIdx=blk.indexOf('\n    EquipScript: >');
+    const equipIdx2=blk.indexOf('\n    EquipScript: {');
+    const sIdx=scriptIdx!==-1?scriptIdx:scriptIdx2!==-1?scriptIdx2:scriptIdx3!==-1?scriptIdx3:-1;
+    const eIdx=equipIdx!==-1?equipIdx:equipIdx2!==-1?equipIdx2:-1;
+    const useIdx=sIdx!==-1?sIdx:eIdx;
+    if(useIdx!==-1){
+      const afterColon=blk.indexOf('\n',useIdx+1);
+      const nextField=blk.indexOf('\n    ',afterColon+1);
+      const raw=nextField===-1?blk.slice(afterColon+1):blk.slice(afterColon+1,nextField);
+      script=raw.replace(/\n\s*/g,' ').trim();
+    } else {
+      // inline script
+      const inlineIdx=blk.indexOf('\n    Script: ');
+      if(inlineIdx!==-1){
+        const lineEnd=blk.indexOf('\n',inlineIdx+13);
+        script=lineEnd===-1?blk.slice(inlineIdx+13):blk.slice(inlineIdx+13,lineEnd);
+        script=script.trim();
+      }
+    }
+
+    // Location
     let location='';
-    if(locMatch){const lm=locMatch[1].matchAll(/(\w+):\s*true/g);location=[...lm].map(([,l])=>l).join(', ')}
-    items.push({id,aegisName:g('AegisName'),name:g('Name')||g('AegisName'),type:g('Type'),
-      subType:g('SubType'),weight:(parseFloat(g('Weight','0'))/10)||0,attack:g('Attack'),
-      defense:g('Defense'),slots:g('Slots','0'),jobs,upper,script,location,
+    const locStart=blk.indexOf('\n    Locations:\n');
+    if(locStart!==-1){
+      const locEnd=blk.indexOf('\n    ',locStart+16);
+      const locBlock=locEnd===-1?blk.slice(locStart+16):blk.slice(locStart+16,locEnd);
+      const locLines=locBlock.split('\n');
+      const locs=[];
+      for(const line of locLines){
+        const m=line.match(/^\s+(\w+):\s*true/);
+        if(m) locs.push(m[1]);
+      }
+      location=locs.join(', ');
+    }
+
+    items.push({
+      id,aegisName:g('AegisName'),name:g('Name')||g('AegisName'),
+      type:g('Type'),subType:g('SubType'),
+      weight:(parseFloat(g('Weight','0'))/10)||0,
+      attack:g('Attack'),defense:g('Defense'),slots:g('Slots','0'),
+      jobs,upper,script,location,
       weaponLevel:g('WeaponLevel'),armorLevel:g('ArmorLevel'),
-      equipLevelMin:g('EquipLevelMin'),refineable:g('Refineable')==='true'});
+      equipLevelMin:g('EquipLevelMin'),refineable:g('Refineable')==='true'
+    });
   }
   return items;
 }
-
 // ══════════════════════════════════════════════
 // GITHUB SYNC
 // ══════════════════════════════════════════════
@@ -875,12 +942,7 @@ renderColorRow(SET_COLORS[0]);
 window._selectedColor=SET_COLORS[0];
 renderSidebar();
 renderSetPane();
-// Auto-load: ถ้ามี cache ใช้เลย ถ้าไม่มี sync อัตโนมัติ
-if(!loadCache()){
-  syncGitHub(true);
-} else {
-  renderDbTable();
-}
+if(!loadCache()){ syncGitHub(true); } else { renderDbTable(); }
 </script>
 </body>
 </html>
